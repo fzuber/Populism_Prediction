@@ -3,21 +3,21 @@
 
 ## This script...
 ## - removes irrelevant variables
-## - cleans data: removing NA'S; adopting scales
-## - Preprocesses ESS data
-## - loads the "PopuList" und crosswalk data and uses it to translate voted partys into populist (yes/no) variable
-
-##TODO: na replacement with machine learning approach
-##TODO:skalen überprüfen (mit codebook)
-##TODO: Kürzel der gewählten partei inkludieren (um zu überprüfen)
-##TODO:decide between excluding ppl without voting preference or assign them as non-populist voters
+## - cleans data: reassigning missing values, adopting scales
+## - loads the "PopuList" und crosswalk data and uses it to translate voted parties into populist (yes/no) variable
+## - performs NA Imputation via the `missRanger` package
 
 
 # STEP 1: load packages and the main dataset (ESS) -------------------
 
-library(tidyverse)
+library(tidyverse) 
 library(sjlabelled) 
-library(haven)
+library(haven) 
+
+library(missRanger) #step 4
+library(tidyverse) #step 4
+
+library(fastDummies) # step 5
 
 ess_data <- read.csv("data/ESS11MD_e01_2.csv")
 str(ess_data) 
@@ -43,11 +43,11 @@ df_selected <- ess_data %>%
     trstplt,   # Trust in politicians
     trstprt,   # Trust in parties
     trstep,    # Trust in EU
-    trstun,    # Trust in institutions
+    trstun,    # Trust in the united nations
     stfdem,    # Satisfaction with democracy
     
     # Features (Nationalism attitudes) ---
-    imueclt,   # Cultural threat
+    imueclt,   # Cultural life enriched/undermined by immigrants
     imwbcnt,   # immigration attitudes
     imbgeco,   # immigration attitudes
     feethngr,  # feel part fo same ethic group as most ppl in country
@@ -60,6 +60,8 @@ df_selected <- ess_data %>%
     rlgdgr,    # Religiosity
     aesfdrk,   # Feeling of safety (Fear of crime)
     # uplconf,   # "Politics is too complicated" 
+    health,    # subjective general health
+    happy,
     
     # Features (Demographics) ---
     gndr,      # Gender
@@ -69,9 +71,7 @@ df_selected <- ess_data %>%
     
     # country specific voting variable (for matching via PopuList) ---
     starts_with("prtvt") 
-    
   )
-#str(df_voting)
 
 # STEP 3: Join with Populist and Crosswalk Data --------------
 #         to create populist variable
@@ -97,8 +97,8 @@ sort(unique(df_voting$vote_code))
 ## Load "The PopuList" 
 populist_list <- read_delim("data/The PopuList 3.0.csv", delim = ";")
 
-## watch out for dates (check which partys arent populist anymore)
-hist(populist_list$populist_end) 
+## watch out for dates (check which parties arent populist anymore)
+#hist(populist_list$populist_end) 
 populist_list %>%
   filter(populist_end != "2100")
 
@@ -151,10 +151,12 @@ head(ess_classified, 30)
 
 #cleaning up dublicated columns
 ess_classified <- ess_classified %>% 
-  select(-c(populist, partyfacts_id, vote_code))
+  select(-c(populist, partyfacts_id))
 head(ess_classified)
 
+
 # STEP 3: Data cleaning ------------------------
+
 # Function to fix ESS codes (77, 88, 99 -> NA)
 clean_ess_codes <- function(x) {
   # For 0-10 scales
@@ -164,55 +166,97 @@ clean_ess_codes <- function(x) {
   return(x)
 }
 
+names(ess_classified)
+str(ess_classified)
+
 df_clean <- ess_classified %>%
   mutate(
-    # 1. Apply generic cleaning to 0-10 scales
-    across(c(hincfel, gincdif, trstplt, trstprt, trstep, stfdem, 
-             imueclt, imwbcnt, imbgeco, lrscale, agea,
-             ppltrst, rlgdgr, aesfdrk, uplconf), 
-           ~ replace(., . %in% c(66, 77, 88, 99), NA)),
+    # Scale specific cleaning
     
-    # 2. Clean Categorical Specifics
     eisced = replace(eisced, eisced %in% c(0, 55, 77, 88, 99), NA),
     gndr = replace(gndr, gndr == 9, NA),
-    domicil = replace(domicil, domicil %in% c(7, 8, 9), NA),
-    brncntr = replace(brncntr, brncntr %in% c(7, 8, 9), NA),
-    health = replace(health, health %in% c(7, 8, 9), NA)
+    agea = replace(agea, agea == 999, NA),
+
+    across(c(uemp12m, gincdif, hincfel, feethngr, brncntr, netusoft,
+             aesfdrk, domicil, health),
+           ~ replace (., . %in% c(7,8,9), NA)),
+    
+    across(c(eduyrs, trstplt, trstprt, trstep, trstun, stfdem, imueclt, imbgeco, 
+             rlgdgr, ppltrst, happy, hinctnta), 
+           ~ replace(., . %in% c(77, 88, 99), NA)),
+    
+    nwspol = replace(nwspol, nwspol %in% c(7777, 8888, 9999), NA)
+    
   )
 
-# counting remaining NA's
+# counting remaining NA's and check for weird thing in the data
 lapply(df_clean, function(x) sum(is.na(x)))
 lapply(df_clean, function(x) summary(x))
 
-# step 4: Pre-Processing for ML -------
+# STEP 4: NA Imputation -----
 
-df_final <- df_clean %>%
-  # Convert Binary/Categorical to Factors or 0/1 for ML
+# Setup the dataset for Imputation
+df_prep <- df_clean %>%
+  # dropping trstep variable
+  select(-trstep) %>%
+  
+  # dropping technical variables that shouldn't be used to predict missingness
+  select(-c(idno, anweight, pspwght, vote_code, idno, anweight, pspwght)) %>% 
+  
+  # Convert Character strings to Factors (Required for Random Forest)
   mutate(
     cntry = as.factor(cntry),
-    
-    # Gender: 0=Male, 1=Female (Standard ML practice)
-    gndr_bin = ifelse(gndr == 2, 1, 0), 
-    
-    # Born in country: 1=Yes, 0=No
-    born_native = ifelse(brncntr == 1, 1, 0),
-    
-    # Domicil: Reverse it so High Number = Urban? 
-    # Currently 1=Big City, 5=Farm. Let's keep it but treat as numeric 
-    # or factor depending on model. Let's leave as numeric for Trees.
-    
-    # Income Insecurity: 
-    # hincfel is 1 (Comfortable) to 4 (Difficult).
-    # Let's make it intuitive: "Financial Stress Score"
-    # No change needed, just remember: High Value = High Stress.
-  ) %>%
-  # Drop original raw categorical columns if you created binary versions
-  select(-gndr, -brncntr) %>% 
-  # Drop rows with NAs (ML models cannot handle NAs usually)
-  drop_na()
+    is_populist_voter = as.factor(is_populist_voter) 
+  )
 
+summary(df_prep$hinctnta)
 
-# step 5: export --------
+# run the Imputation
+df_imputed <- missRanger(
+  df_prep, 
+  formula = . ~ ., 
+  num.trees = 50,  # 50 for speed (sufficient enough for imputation)
+  verbose = 1,     
+  seed = 100       
+)
 
-write_csv(df_final, "final_data/ESS11_Expanded_ML_Ready.csv")
-print(paste("Final dataset has", ncol(df_final), "variables and", nrow(df_final), "respondents."))
+# check if it worked
+sum(is.na(df_imputed))
+
+## STEP 5: last preprocessing steps ------
+# transforming country variable --> one-hot encoded dummys
+# transforming populist variable back to numeric
+
+df_final_ml <- df_imputed %>%
+  dummy_cols(select_columns = "cntry", 
+             remove_first_dummy = TRUE, 
+             remove_selected_columns = TRUE) %>%
+  
+  # Convert Target back to Numeric 0/1
+  mutate(is_populist_voter = as.numeric(as.character(is_populist_voter)))
+
+str(df_final_ml)
+View(df_final_ml)
+
+# STEP 6: export --------
+# Reference file including meta data: ID and Country 
+# exclude those meta variables in the actual training data set
+
+meta_data <- df_clean %>%
+  select(idno, anweight, pspwght, cntry)
+
+df_final_storage <- bind_cols(meta_data, df_final_ml)
+
+df_final_storage <- df_final_storage %>%
+  relocate(idno, cntry, is_populist_voter, .before = everything())
+
+write_rds(df_final_storage, "data/ESS11_ReferenceDS_including_meta.rds")
+
+# Final file for ML Analysis:
+
+write_csv(df_final_ml, "final_data/ESS11_ML_Ready.csv")
+print(paste("Final dataset has", ncol(df_final_ml), "variables and", nrow(df_final_ml), "respondents."))
+print(paste("raw dataset had", ncol(ess_data), "variables and", nrow(ess_data), "respondents."))
+
+# 24667 observations left (lost 46162 - 24667 = around 47% when excluding invalid voters)
+
