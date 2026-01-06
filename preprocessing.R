@@ -11,13 +11,16 @@
 # STEP 1: load packages and the main dataset (ESS) -------------------
 
 library(tidyverse) 
-library(sjlabelled) 
-library(haven) 
+library(sjlabelled)
+library(haven)
+library(dplyr)
 
-library(missRanger) #step 4
-library(tidyverse) #step 4
+library(wbstats)
 
-library(fastDummies) # step 5
+library(missRanger) 
+library(tidyverse) 
+
+library(fastDummies) 
 
 ess_data <- read.csv("data/ESS11MD_e01_2.csv")
 str(ess_data) 
@@ -73,7 +76,57 @@ df_selected <- ess_data %>%
     starts_with("prtvt") 
   )
 
-# STEP 3: Join with Populist and Crosswalk Data --------------
+
+# STEP 3: adding additional country variables ------
+# build Gini-Index, GDP and unemployment rate Variable using the wbstats package
+my_indicators <- c(
+  gdp_capita = "NY.GDP.PCAP.PP.KD",  # GDP per capita 
+  gini_index = "SI.POV.GINI",        # Gini Index 
+  unemp_rate = "SL.UEM.TOTL.ZS"      # Unemployment Rate
+)
+
+# Fetch most resent data 
+mmacro_data <- wb_data(
+  country = "countries_only", 
+  indicator = my_indicators, 
+  mrv = 5   
+) %>%
+  select(iso2c, gdp_capita, gini_index, unemp_rate) %>%
+  rename(cntry = iso2c) %>%
+  distinct(cntry, .keep_all = TRUE)
+
+# keep only those countries that are actually in the survey
+ess_countries <- unique(df_prep$cntry)
+macro_relevant <- macro_data %>%
+  filter(cntry %in% ess_countries)
+
+colSums(is.na(macro_relevant))
+
+# Check which countries have NA in the gini column
+missing_countries <- macro_relevant %>%
+  filter(is.na(gini_index)) %>%
+  select(cntry)
+
+print(missing_countries)
+
+# Manually fill missing Gini values 
+macro_relevant <- macro_relevant %>%
+  mutate(gini_index = case_when(
+    cntry == "GB" ~ 35.5,
+    cntry == "HU" ~ 27.2,
+    cntry == "IS" ~ 23.2,
+    cntry == "IL" ~ 37.9,
+    cntry == "NI" ~ 26.3,
+    
+    TRUE ~ gini_index
+  ))
+
+#  Merge into ESS data
+df_selected <- df_selected %>%
+  left_join(macro_relevant, by = "cntry")
+
+
+# STEP 4: Join with Populist and Crosswalk Data --------------
 #         to create populist variable
 
 # A. Create 'vote_code' variable ---
@@ -155,7 +208,7 @@ ess_classified <- ess_classified %>%
 head(ess_classified)
 
 
-# STEP 3: Data cleaning ------------------------
+# STEP 5: Data cleaning ------------------------
 
 # Function to fix ESS codes (77, 88, 99 -> NA)
 clean_ess_codes <- function(x) {
@@ -193,7 +246,7 @@ df_clean <- ess_classified %>%
 lapply(df_clean, function(x) sum(is.na(x)))
 lapply(df_clean, function(x) summary(x))
 
-# STEP 4: NA Imputation -----
+# STEP 6: NA Imputation ----------
 
 # Setup the dataset for Imputation
 df_prep <- df_clean %>%
@@ -223,7 +276,7 @@ df_imputed <- missRanger(
 # check if it worked
 sum(is.na(df_imputed))
 
-## STEP 5: last preprocessing steps ------
+## STEP 7: last preprocessing steps ------
 # transforming country variable --> one-hot encoded dummys
 # transforming populist variable back to numeric
 
@@ -238,7 +291,7 @@ df_final_ml <- df_imputed %>%
 str(df_final_ml)
 View(df_final_ml)
 
-# STEP 6: export --------
+# STEP 8: export --------
 # Reference file including meta data: ID and Country 
 # exclude those meta variables in the actual training data set
 
