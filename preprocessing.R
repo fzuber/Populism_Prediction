@@ -5,6 +5,7 @@
 ## - removes irrelevant variables
 ## - cleans data: reassigning missing values, adopting scales
 ## - loads the "PopuList" und crosswalk data and uses it to translate voted parties into populist (yes/no) variable
+## - uses the package `wbstats` to add additional variables: gini-idx, unemployment rate and gdp
 ## - performs NA Imputation via the `missRanger` package
 
 
@@ -14,12 +15,8 @@ library(tidyverse)
 library(sjlabelled)
 library(haven)
 library(dplyr)
-
 library(wbstats)
-
 library(missRanger) 
-library(tidyverse) 
-
 library(fastDummies) 
 
 ess_data <- read.csv("data/ESS11MD_e01_2.csv")
@@ -28,7 +25,7 @@ str(ess_data)
 # STEP 2: select relevant variables ------------
 df_selected <- ess_data %>%
   select(
-    # ID & Weights (meta variables) ---
+    # ID, Country & Weights (meta vars) ---
     idno, cntry, anweight, pspwght,
     
     # Features (Education vars) ---
@@ -40,7 +37,7 @@ df_selected <- ess_data %>%
     hinctnta,  # household income decile
     uemp12m,   # Unemployment experience
     gincdif,   # views on income inequality
-    pdwrk,     # Currently working (Yes/No)
+    pdwrk,     # Currently working (Yes/No )
     
     # Features (political trust) ---
     trstplt,   # Trust in politicians
@@ -58,12 +55,11 @@ df_selected <- ess_data %>%
     
     # additional features/controls ---
     ppltrst,   # trust in ppl
-    nwspol,    # Minutes watching news (Media exposure)
+    nwspol,    # Minutes watching news 
     netusoft,  # Internet usage frequency
     rlgdgr,    # Religiosity
-    aesfdrk,   # Feeling of safety (Fear of crime)
-    # uplconf,   # "Politics is too complicated" 
-    health,    # subjective general health
+    aesfdrk,   # Feeling of safety 
+    health,    # subjective health
     happy,
     
     # Features (Demographics) ---
@@ -77,7 +73,7 @@ df_selected <- ess_data %>%
   )
 
 
-# STEP 3: adding additional country variables ------
+# STEP 3: add additional country variables ------
 # build Gini-Index, GDP and unemployment rate Variable using the wbstats package
 my_indicators <- c(
   gdp_capita = "NY.GDP.PCAP.PP.KD",  # GDP per capita 
@@ -102,7 +98,7 @@ macro_relevant <- macro_data %>%
 
 colSums(is.na(macro_relevant))
 
-# Check which countries have NA in the gini column
+# Check for countries with NAs in the gini column
 missing_countries <- macro_relevant %>%
   filter(is.na(gini_index)) %>%
   select(cntry)
@@ -126,8 +122,8 @@ df_selected <- df_selected %>%
   left_join(macro_relevant, by = "cntry")
 
 
-# STEP 4: Join with Populist and Crosswalk Data --------------
-#         to create populist variable
+# STEP 4: Join with Populist and Crosswalk Data to create 
+# the dependent variable: is_populist_voter ----------
 
 # A. Create 'vote_code' variable ---
 df_voting <- df_selected %>%
@@ -235,14 +231,14 @@ df_clean <- ess_classified %>%
            ~ replace (., . %in% c(7,8,9), NA)),
     
     across(c(eduyrs, trstplt, trstprt, trstep, trstun, stfdem, imueclt, imbgeco, 
-             rlgdgr, ppltrst, happy, hinctnta), 
+             rlgdgr, ppltrst, happy, hinctnta, lrscale), 
            ~ replace(., . %in% c(77, 88, 99), NA)),
     
     nwspol = replace(nwspol, nwspol %in% c(7777, 8888, 9999), NA)
     
   )
 
-# counting remaining NA's and check for weird thing in the data
+# counting remaining NA's and check for weird numbers in the data
 lapply(df_clean, function(x) sum(is.na(x)))
 lapply(df_clean, function(x) summary(x))
 

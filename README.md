@@ -10,8 +10,8 @@ ESS Multilevel data round 11; URL: https://ess.sikt.no/en/datafile/98b539ee-63f4
 ### Notes concerning the Data Engineering & Cleaning Part:
 
 - Sample Selection: The dataset was restricted to valid voters only. Respondents who did not vote, were not eligible, or refused to answer the voting question (ESS codes 66, 77, 88, 99) were excluded.
-  --> Impact: Sample size reduced from ~46k to ~24k observations.
-
+  --> Impact: Sample size reduced from ~46k to ~24k observation. (group decision if thats fine or if we would need to include a "non-voters" kategory)
+    
 - Populist Classification:
   - I linked individual voting data from ESS to 'The PopuList' using the PartyFacts crosswalk table (Döring & Regel, 2019). This crosswalk translates country-specific ESS party codes into standardized PartyFacts IDs.
   - Source: Popu-List.org & Extended Crosswalk (Hill, 2020)
@@ -19,9 +19,9 @@ ESS Multilevel data round 11; URL: https://ess.sikt.no/en/datafile/98b539ee-63f4
     - URL to the crosswalk table: https://github.com/sophieehill/ess-partyfacts-crosswalk
 
 - Missing Data (Imputation):
-  - Performed using the missRanger package (Random Forest imputation).
-  - Methodology: Imputation was run on the full dataset prior to the test/traing split. The target variable (is_populist_voter) was included as a predictor to preserve correlations but was not imputed itself (as it had no NAs by design).
-
+  - Missing values have been imputed using Random Forest (missRanger). Target was excluded from imputation to prevent leakage.
+  - note: i did not round the imputed values (so f.e in the case that we will be explicity be using these variables categories we need to keep that in mind)
+    
 - Variable Processing:
   - Dropped: trstun (Trust in the united nation) was removed since it had many NA's and I decided its not very     relevant anyways (compared to trstpe and the other trust variables).
   - Encoding: cntry was One-Hot Encoded (dummy variables) for ML compatibility.
