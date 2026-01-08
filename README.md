@@ -4,7 +4,7 @@ This is a university team project within the context of the course "Machine lear
 ### Workflow: 
 https://docs.google.com/document/d/1C7Bb0xgfPLW3uYFhx71ZYfCoM_PBCfYuaeDE7lDArgs/edit?tab=t.0
 
-#### Main database:  
+#### Main data:  
 ESS Multilevel data round 11; URL: https://ess.sikt.no/en/datafile/98b539ee-63f4-4803-a384-a8d05293894c
 
 ### Notes concerning the Data Engineering & Cleaning Part:
