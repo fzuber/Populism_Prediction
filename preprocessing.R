@@ -319,8 +319,6 @@ write_rds(df_final_storage, "data/ESS11_ReferenceDS_including_meta.rds")
 # Save Pure ML Data
 write_csv(df_final_ml, "final_data/ESS11_ML_Ready.csv")
 
-write_csv(df_final_ml, "final_data/ESS11_ML_Ready.csv")
-
 print(paste("Final dataset has", ncol(df_final_ml), "variables and", nrow(df_final_ml), "respondents."))
 print(paste("raw dataset had", ncol(ess_data), "variables and", nrow(ess_data), "respondents."))
 
