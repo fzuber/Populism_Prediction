@@ -82,7 +82,7 @@ my_indicators <- c(
 )
 
 # Fetch most resent data 
-mmacro_data <- wb_data(
+macro_data <- wb_data(
   country = "countries_only", 
   indicator = my_indicators, 
   mrv = 5   
@@ -260,50 +260,67 @@ df_prep <- df_clean %>%
 
 summary(df_prep$hinctnta)
 
+# Separate target
+target_col <- df_prep$is_populist_voter
+df_features <- df_prep %>% select(-is_populist_voter)
+
 # run the Imputation
 df_imputed <- missRanger(
-  df_prep, 
+  df_features, 
   formula = . ~ ., 
   num.trees = 50,  # 50 for speed (sufficient enough for imputation)
   verbose = 1,     
   seed = 100       
 )
 
+# Add target back
+df_imputed <- df_imputed %>%
+  mutate(is_populist_voter = target_col)
+
 # check if it worked
 sum(is.na(df_imputed))
 
-## STEP 7: last preprocessing steps ------
+## STEP 7: Last preprocessing steps ------
 # transforming country variable --> one-hot encoded dummys
 # transforming populist variable back to numeric
+# Recoding Gender
 
 df_final_ml <- df_imputed %>%
   dummy_cols(select_columns = "cntry", 
              remove_first_dummy = TRUE, 
              remove_selected_columns = TRUE) %>%
   
-  # Convert Target back to Numeric 0/1
-  mutate(is_populist_voter = as.numeric(as.character(is_populist_voter)))
+  # Convert Target back to Numeric
+  mutate(is_populist_voter = as.numeric(as.character(is_populist_voter))) %>%
+  
+  # Recode Gender (Male 1->0, Female 2->1)
+  mutate(gndr = ifelse(gndr == 2, 1, 0)) %>%
+  rename(is_female = gndr)
 
 str(df_final_ml)
-View(df_final_ml)
 
-# STEP 8: export --------
+# STEP 8: Export --------
 # Reference file including meta data: ID and Country 
-# exclude those meta variables in the actual training data set
 
+# retrieve the meta data from 'df_clean' (the version before imputation/dropping)
 meta_data <- df_clean %>%
   select(idno, anweight, pspwght, cntry)
 
+# Combine Meta Data + ML Data
 df_final_storage <- bind_cols(meta_data, df_final_ml)
 
+# Organize columns (Meta first)
 df_final_storage <- df_final_storage %>%
   relocate(idno, cntry, is_populist_voter, .before = everything())
 
+# Save Reference Data (With IDs)
 write_rds(df_final_storage, "data/ESS11_ReferenceDS_including_meta.rds")
 
-# Final file for ML Analysis:
+# Save Pure ML Data
+write_csv(df_final_ml, "final_data/ESS11_ML_Ready.csv")
 
 write_csv(df_final_ml, "final_data/ESS11_ML_Ready.csv")
+
 print(paste("Final dataset has", ncol(df_final_ml), "variables and", nrow(df_final_ml), "respondents."))
 print(paste("raw dataset had", ncol(ess_data), "variables and", nrow(ess_data), "respondents."))
 
